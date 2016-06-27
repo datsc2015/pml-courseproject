@@ -1,0 +1,134 @@
+---
+title: "FinalProject_PML"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Synopsis: The goal of this report is to predict the manner in which they did the exercise (classe). 
+
+## Data loading and processing
+### Load training and testing data
+```{r, echo=TRUE}
+rm(list=ls())
+ls()
+library(caret)
+library(rpart)
+#library(rattle)
+library(randomForest)
+library(rpart.plot)
+library(knitr)
+### Training data
+training <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", header=T,na.strings =c("NA","#DIV/0!"," ") , strip.white =T )
+dim(training)
+#summary of classe
+summary(training$classe)
+
+### Testing data
+testing <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", header=T,na.strings =c("NA","#DIV/0!"," ") , strip.white =T )
+dim(testing)
+#check if the variables in testing data set is the same as in training data set
+library(compare)
+all.equal(colnames(subset(training,select=-classe)) ,colnames(testing))
+#The variables in both training and testing datasets are not exactly the same
+comparison <- compare(subset(training,select=-classe),colnames(testing),allowAll=TRUE)
+
+```
+
+## Exporing and cleaning data
+```{r, echo=TRUE}
+#summary of percentage missing by variable
+cat("Total number of variables in the training dataset: ", dim(training)[2]-1 )
+missing.var <- apply(training, 2, function(x) {sum(is.na(x)/nrow(training)*100)})
+head(missing.var)
+#exclude the variables with %missing>90
+cat("#Variables with %missing<90% :  ",dim(training[,which(missing.var<90)])[2] )
+trainingd <- training[,which(missing.var==0)]
+training1 <- trainingd[,-(1:7)]
+dim(training1)
+
+#Testing data set
+missingt.var <- apply(testing, 2, function(x) {sum(is.na(x)/nrow(testing)*100)})
+testing2<- testing[,colnames(subset(training1,select=-classe)) ]
+all.equal(colnames(subset(training1,select=-classe)) ,colnames(testing2))
+
+```
+
+
+## Training and Validating datasets
+```{r, echo=TRUE}
+set.seed(13234)
+inTrain <- createDataPartition(y=training1$classe, p=0.7, list=F)
+trainingd2 <- training1[inTrain,]
+validat2 <- training1[-inTrain,]
+dim(trainingd2)
+table(trainingd2$classe)
+
+```
+
+## Prediction
+### Mode1 1: Build prediction model with decision tree
+```{r, echo=TRUE}
+set.seed(13234)
+modfit1 <-rpart(classe ~ ., data=trainingd2, method="class")
+pred.train <- predict(modfit1, trainingd2, type="class")
+pred.validate <- predict(modfit1, validat2, type="class")
+
+accut.fit1 <- confusionMatrix(pred.train, trainingd2$classe)
+cat("accuracy of training dataset ", round(accut.fit1$overall['Accuracy'],4))
+accuv.fit1 <- confusionMatrix(pred.validate, validat2$classe)
+cat("accuracy of validation dataset: ", round(accuv.fit1$overall['Accuracy'],4))
+plot(accuv.fit1$table,col=accuv.fit1$byClass, main="Decision Tree")
+
+```
+
+
+### Mode1 2:Build prediction model with Stochastic gradient boosting trees (gbm)
+```{r, echo=TRUE}
+set.seed(13234)
+modfit2 <- train(classe~., data=trainingd2, method="gbm",trControl=trainControl(method="repeatedcv",number=5,repeats=1),verbose=FALSE)
+pred2 <- predict(modfit2, newdata=validat2)
+accu.fit2 <-confusionMatrix(pred2, validat2$classe)
+#accuray of validation data set
+round(accu.fit2$overall['Accuracy'],4)
+plot(accu.fit2$table, col=accu.fit2$byClass, main="Boosted Regression")
+
+```
+
+### Mode1 3: Build prediction model with random forest
+```{r, echo=TRUE}
+set.seed(13234)
+fitControl <- trainControl(method='cv', number = 3)
+modfit3 <- train(classe ~ ., data=trainingd2,trControl=fitControl, method='rf', ntree=100)
+print(modfit3)
+pred3 <- predict(modfit3, validat2)
+
+accu.fit3 <-confusionMatrix(pred3, validat2$classe)
+#accuray of validation dataset
+round(accu.fit3$overall['Accuracy'],4)
+plot(accu.fit3$table, col=accu.fit3$byClass, main="Random Forest")
+
+```
+
+### compare the accuracy of Decision tree vs Random forest model
+```{r, echo=TRUE}
+Accuracy.all <- data.frame(Model = c('DecisionTree', 'GBM', 'RF'),Accuracy = rbind(accuv.fit1$overall[1], accu.fit2$overall[1], accu.fit3$overall[1] ))
+Accuracy.all
+# The Random forest model has the highest accuracy comparing to the other two models.
+```
+
+
+## Prediction
+### Predict 20 different test cases in testing data with random forest
+```{r, echo=TRUE}
+set.seed(13234)
+pred.final <- predict(modfit3, newdata=testing[,colnames(subset(trainingd2,select=-classe))])
+# The final prediction result
+data.frame( problem_id=testing$problem_id,predicted=pred.final)
+
+```
+#### Summary: Three different models: Decision tree, gbm and random forest are compared, and the best model is Random Forest based on accuracy.Then Random forest is used to predict the classe of the testing data set. 
+
+
